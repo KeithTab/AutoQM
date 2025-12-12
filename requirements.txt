@@ -1,0 +1,33 @@
+# QMMM Workflow Python Dependencies
+# ===================================
+
+# Core Scientific Libraries
+# --------------------------
+biopython>=1.79
+pandas>=1.3.0
+openpyxl>=3.0.0
+
+# Note: The following packages are used but may need to be installed separately
+# as they are external command-line tools wrapped by Python subprocess calls:
+# - acpype (for topology generation)
+# - AmberTools (tleap, sander, xtb)
+# - Open Babel (obabel, for adding hydrogens)
+# - Gromacs (gmx commands, used in run.sh script)
+# - ParmEd (parmed, for Amber to Gromacs conversion in run.sh)
+
+# Python Standard Library Dependencies
+# -------------------------------------
+# The following are built-in Python modules and don't need to be installed:
+# - pathlib (Python 3.4+)
+# - subprocess
+# - multiprocessing
+# - functools
+# - typing
+# - collections
+# - tempfile
+# - argparse
+# - sys
+# - os
+# - shutil
+# - re
+# - time
