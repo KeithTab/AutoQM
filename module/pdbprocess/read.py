@@ -1,19 +1,15 @@
-"""
-Optimized PDB Processing Module
-"""
-
 from Bio import PDB
 from pathlib import Path
-import subprocess
-import tempfile
 from functools import lru_cache, wraps
 from multiprocessing import Pool, cpu_count
 from typing import Dict, List, Generator, Tuple
 import time
+from rdkit import Chem
+from rdkit.Chem import AllChem, rdDetermineBonds
+from utils.standardize import standardize_pdb_file
 
 
 def timing_decorator(func):
-    """Decorator to measure function execution time"""
     @wraps(func)
     def wrapper(*args, **kwargs):
         start = time.time()
@@ -26,7 +22,6 @@ def timing_decorator(func):
 
 
 def error_handler(func):
-    """Decorator for consistent error handling"""
     @wraps(func)
     def wrapper(*args, **kwargs):
         try:
@@ -41,97 +36,119 @@ def error_handler(func):
 
 
 class PDBProcessor:
-    """Optimized PDB processor with parallel processing"""
-    
-    __slots__ = ('parser', 'io', '_obabel_available')
+    __slots__ = ('parser', 'io')
     
     def __init__(self):
         self.parser = PDB.PDBParser(QUIET=True)
         self.io = PDB.PDBIO()
-        self._obabel_available = None
-    
-    @property
-    @lru_cache(maxsize=1)
-    def obabel_available(self) -> bool:
-        """Check if obabel is available (cached)"""
-        if self._obabel_available is None:
-            try:
-                result = subprocess.run(
-                    ['obabel', '--version'],
-                    capture_output=True,
-                    timeout=5
-                )
-                self._obabel_available = result.returncode == 0
-            except (FileNotFoundError, subprocess.TimeoutExpired):
-                self._obabel_available = False
-        return self._obabel_available
     
     class ProteinSelect(PDB.Select):
-        """Optimized protein selector"""
         __slots__ = ()
         
+        STANDARD_RESIDUES = {
+            'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
+            'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
+        }
+        
         def accept_residue(self, residue):
-            return residue.id[0] == ' '
+            return residue.resname in self.STANDARD_RESIDUES
         
         def accept_atom(self, atom):
             return atom.element != 'H'
     
     class LigandSelect(PDB.Select):
-        """Optimized ligand selector"""
         __slots__ = ()
         
+        STANDARD_RESIDUES = {
+            'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
+            'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
+        }
+        
         def accept_residue(self, residue):
-            return residue.id[0] != ' ' and residue.resname != 'HOH'
+            return residue.resname not in self.STANDARD_RESIDUES and residue.resname != 'HOH'
     
     @error_handler
     @timing_decorator
     def add_hydrogens_to_ligand(self, ligand_pdb_path: Path, verbose: bool = False) -> bool:
-        """
-        Add hydrogens to ligand using obabel with optimized I/O
-        
-        Args:
-            ligand_pdb_path: Path to ligand PDB file
-            verbose: Enable verbose output
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        if not self.obabel_available:
-            return False
-        
         ligand_pdb_path = Path(ligand_pdb_path)
         
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.pdb', delete=False) as tmp_file:
-            tmp_path = Path(tmp_file.name)
+        with open(ligand_pdb_path, 'r') as f:
+            for line in f:
+                if line.startswith('HETATM') or line.startswith('ATOM'):
+                    residue_name = line[17:20].strip()
+                    chain_id = line[21].strip()
+                    break
+            else:
+                residue_name = 'LIG'
+                chain_id = 'A'
         
-        try:
-            result = subprocess.run(
-                ['obabel', str(ligand_pdb_path), '-O', str(tmp_path), '-h'],
-                capture_output=True,
-                text=True,
-                timeout=60
-            )
-            
-            if result.returncode == 0 and tmp_path.exists():
-                tmp_path.replace(ligand_pdb_path)
-                return True
-            
-            tmp_path.unlink(missing_ok=True)
+        mol = Chem.MolFromPDBFile(str(ligand_pdb_path), removeHs=False, sanitize=False)
+        if mol is None:
+            if verbose:
+                print(f"  ⚠ RDKit failed to read {ligand_pdb_path.name}")
             return False
-                
-        except (subprocess.TimeoutExpired, Exception):
-            tmp_path.unlink(missing_ok=True)
-            return False
+        
+        rdDetermineBonds.DetermineBonds(mol, charge=0)
+        
+        mol_with_h = Chem.AddHs(mol, addCoords=True)
+        
+        conf = mol_with_h.GetConformer()
+        heavy_atom_indices = []
+        for atom in mol_with_h.GetAtoms():
+            if atom.GetAtomicNum() != 1:
+                heavy_atom_indices.append(atom.GetIdx())
+        
+        if AllChem.MMFFHasAllMoleculeParams(mol_with_h):
+            props = AllChem.MMFFGetMoleculeProperties(mol_with_h)
+            ff = AllChem.MMFFGetMoleculeForceField(mol_with_h, props)
+            
+            for idx in heavy_atom_indices:
+                pos = conf.GetAtomPosition(idx)
+                ff.AddFixedPoint(idx)
+            
+            ff.Minimize(maxIts=200)
+        else:
+            ff = AllChem.UFFGetMoleculeForceField(mol_with_h)
+            
+            for idx in heavy_atom_indices:
+                ff.AddFixedPoint(idx)
+            
+            ff.Minimize(maxIts=200)
+        
+        temp_path = ligand_pdb_path.with_suffix('.tmp')
+        writer = Chem.PDBWriter(str(temp_path))
+        writer.write(mol_with_h)
+        writer.close()
+        
+        fixed_lines = []
+        with open(temp_path, 'r') as f:
+            for line in f:
+                if line.startswith('HETATM') or line.startswith('ATOM'):
+                    line = line[:17] + f'{residue_name:>3}' + ' ' + chain_id + line[22:]
+                fixed_lines.append(line)
+        
+        with open(ligand_pdb_path, 'w') as f:
+            f.writelines(fixed_lines)
+        
+        temp_path.unlink(missing_ok=True)
+        
+        if verbose:
+            print(f"  ✓ Added hydrogens to {ligand_pdb_path.name} (residue: {residue_name}, chain: {chain_id})")
+        return True
     
     def _count_atoms_generator(self, structure) -> Generator[Tuple[str, int], None, None]:
-        """Generator to count atoms efficiently"""
         total = protein = protein_no_h = ligand = 0
+        
+        STANDARD_RESIDUES = {
+            'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
+            'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
+        }
         
         for model in structure:
             for chain in model:
                 for residue in chain:
-                    is_protein = residue.id[0] == ' '
-                    is_ligand = residue.id[0] != ' ' and residue.resname != 'HOH'
+                    is_protein = residue.resname in STANDARD_RESIDUES
+                    is_ligand = residue.resname not in STANDARD_RESIDUES and residue.resname != 'HOH'
                     
                     for atom in residue:
                         total += 1
@@ -151,44 +168,69 @@ class PDBProcessor:
     @timing_decorator
     def process_pdb(self, input_pdb_path: Path, output_protein_path: Path, 
                     output_ligand_path: Path, verbose: bool = False) -> Dict:
-        """Process PDB file with optimized I/O operations"""
         input_pdb_path = Path(input_pdb_path)
         output_protein_path = Path(output_protein_path)
         output_ligand_path = Path(output_ligand_path)
         
-        # Create parent directories efficiently
         output_protein_path.parent.mkdir(parents=True, exist_ok=True)
         output_ligand_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Parse structure once
-        structure = self.parser.get_structure('complex', str(input_pdb_path))
+        STANDARD_RESIDUES = {
+            'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
+            'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
+        }
         
-        # Initialize stats using generator
-        stats = {'input_file': str(input_pdb_path)}
-        stats.update(dict(self._count_atoms_generator(structure)))
+        protein_lines = []
+        ligand_lines = []
+        total_atoms = protein_atoms = protein_no_h = ligand_atoms = 0
         
-        # Save protein and ligand
-        self.io.set_structure(structure)
-        self.io.save(str(output_protein_path), self.ProteinSelect())
+        with open(input_pdb_path, 'r') as f:
+            for line in f:
+                if line.startswith('ATOM') or line.startswith('HETATM'):
+                    resname = line[17:20].strip()
+                    element = line[76:78].strip() if len(line) > 77 else line[12:14].strip()[0]
+                    
+                    total_atoms += 1
+                    
+                    if resname in STANDARD_RESIDUES:
+                        if element != 'H':
+                            protein_lines.append(line)
+                            protein_no_h += 1
+                        protein_atoms += 1
+                    elif resname != 'HOH':
+                        ligand_lines.append(line)
+                        ligand_atoms += 1
         
-        self.io.set_structure(structure)
-        self.io.save(str(output_ligand_path), self.LigandSelect())
+        with open(output_protein_path, 'w') as f:
+            f.writelines(protein_lines)
+            if protein_lines:
+                f.write('END\n')
         
-        # Add hydrogens if available
+        standardize_pdb_file(output_protein_path, verbose=verbose)
+        
+        with open(output_ligand_path, 'w') as f:
+            f.writelines(ligand_lines)
+            if ligand_lines:
+                f.write('END\n')
+        
         h_added = self.add_hydrogens_to_ligand(output_ligand_path, verbose=verbose)
         
-        stats.update({
+        stats = {
+            'input_file': str(input_pdb_path),
+            'total_atoms': total_atoms,
+            'protein_atoms': protein_atoms,
+            'protein_atoms_no_h': protein_no_h,
+            'ligand_atoms': ligand_atoms,
             'hydrogens_added': h_added,
             'output_protein_file': str(output_protein_path),
             'output_ligand_file': str(output_ligand_path),
             'status': 'success'
-        })
+        }
         
         return stats
     
     @staticmethod
     def _process_single_file(args: Tuple) -> Dict:
-        """Static method for parallel processing"""
         input_path, output_protein, output_ligand, verbose = args
         processor = PDBProcessor()
         
@@ -213,7 +255,6 @@ class PDBProcessor:
     
     def _prepare_batch_args(self, input_files: List[Path], output_dir: Path, 
                            verbose: bool) -> Generator[Tuple, None, None]:
-        """Generator to prepare arguments for batch processing"""
         for input_file in input_files:
             input_path = Path(input_file)
             base_name = input_path.stem
@@ -230,11 +271,9 @@ class PDBProcessor:
     def process_batch(self, input_files: List[Path], output_dir: Path, 
                      verbose: bool = False, parallel: bool = True, 
                      n_processes: int = None) -> List[Dict]:
-        """Process multiple PDB files with optional parallel processing"""
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Prepare arguments using generator
         args_list = list(self._prepare_batch_args(input_files, output_dir, verbose))
         
         if parallel and len(args_list) > 1:
