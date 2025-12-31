@@ -1,6 +1,6 @@
 from pathlib import Path
-from typing import Optional, Set, Tuple
-from Bio import PDB
+from typing import Optional
+import sys
 
 try:
     from pdbfixer import PDBFixer
@@ -69,87 +69,62 @@ def _fix_terminal_atoms(pdb_path: Path):
         f.writelines(lines)
 
 
-def _detect_disulfide_bonds_biopython(pdb_path: Path, verbose: bool = False) -> Set[Tuple[str, int]]:
-    parser = PDB.PDBParser(QUIET=True)
-    structure = parser.get_structure('protein', str(pdb_path))
+def _fix_disulfide_bonds(pdb_path: Path, distance_cutoff: float = 2.5, verbose: bool = False):
+    lines = []
+    cys_residues = {}
+    
+    with open(pdb_path, 'r') as f:
+        for line in f:
+            lines.append(line)
+            if line.startswith(('ATOM', 'HETATM')):
+                resname = line[17:20].strip()
+                if resname == 'CYS':
+                    atom_name = line[12:16].strip()
+                    if atom_name == 'SG':
+                        chain = line[21].strip()
+                        resnum = int(line[22:26].strip())
+                        x = float(line[30:38])
+                        y = float(line[38:46])
+                        z = float(line[46:54])
+                        key = f"{chain}_{resnum}"
+                        cys_residues[key] = {'x': x, 'y': y, 'z': z, 'chain': chain, 'resnum': resnum}
     
     bonded_cys = set()
-    ssbond_records = set()
+    cutoff_sq = distance_cutoff ** 2
     
-    with open(pdb_path, 'r') as f:
-        for line in f:
-            if line.startswith('SSBOND'):
-                try:
-                    chain1 = line[15].strip()
-                    res1 = int(line[17:21].strip())
-                    chain2 = line[29].strip()
-                    res2 = int(line[31:35].strip())
-                    ssbond_records.add((chain1, res1))
-                    ssbond_records.add((chain2, res2))
-                    if verbose:
-                        print(f"  ✓ Found SSBOND record: {chain1}_{res1} - {chain2}_{res2}")
-                except:
-                    pass
+    for key1, cys1 in cys_residues.items():
+        for key2, cys2 in cys_residues.items():
+            if key1 >= key2:
+                continue
+            dx = cys1['x'] - cys2['x']
+            dy = cys1['y'] - cys2['y']
+            dz = cys1['z'] - cys2['z']
+            dist_sq = dx*dx + dy*dy + dz*dz
+            
+            if dist_sq <= cutoff_sq:
+                bonded_cys.add(key1)
+                bonded_cys.add(key2)
+                if verbose:
+                    print(f"  ✓ Detected disulfide bond: {key1} - {key2} ({dist_sq**0.5:.2f} Å)")
     
-    if ssbond_records:
-        bonded_cys = ssbond_records
-    else:
-        cys_sg_atoms = []
-        for model in structure:
-            for chain in model:
-                for residue in chain:
-                    if residue.get_resname() == 'CYS':
-                        if 'SG' in residue:
-                            sg_atom = residue['SG']
-                            cys_sg_atoms.append({
-                                'atom': sg_atom,
-                                'chain': chain.id,
-                                'resnum': residue.id[1],
-                                'key': (chain.id, residue.id[1])
-                            })
-        
-        ns = PDB.NeighborSearch([item['atom'] for item in cys_sg_atoms])
-        
-        for i, cys1 in enumerate(cys_sg_atoms):
-            for cys2 in cys_sg_atoms[i+1:]:
-                distance = cys1['atom'] - cys2['atom']
-                if 1.8 <= distance <= 2.5:
-                    bonded_cys.add(cys1['key'])
-                    bonded_cys.add(cys2['key'])
-                    if verbose:
-                        print(f"  ✓ Detected disulfide bond: {cys1['chain']}_{cys1['resnum']} - {cys2['chain']}_{cys2['resnum']} ({distance:.2f} Å)")
-    
-    return bonded_cys
-
-
-def _fix_disulfide_bonds(pdb_path: Path, verbose: bool = False):
-    try:
-        bonded_cys = _detect_disulfide_bonds_biopython(pdb_path, verbose=verbose)
-    except Exception as e:
-        if verbose:
-            print(f"  ⚠ BioPython disulfide detection failed: {e}, using fallback")
-        bonded_cys = set()
-    
-    if not bonded_cys:
-        return
-    
-    lines = []
-    with open(pdb_path, 'r') as f:
-        for line in f:
+    if bonded_cys:
+        new_lines = []
+        for line in lines:
             if line.startswith(('ATOM', 'HETATM')):
                 resname = line[17:20].strip()
                 if resname == 'CYS':
                     chain = line[21].strip()
                     resnum = int(line[22:26].strip())
-                    if (chain, resnum) in bonded_cys:
+                    key = f"{chain}_{resnum}"
+                    if key in bonded_cys:
                         line = line[:17] + 'CYX' + line[20:]
-            lines.append(line)
-    
-    with open(pdb_path, 'w') as f:
-        f.writelines(lines)
-    
-    if verbose:
-        print(f"  ✓ Renamed {len(bonded_cys)} CYS to CYX (disulfide bonded)")
+            new_lines.append(line)
+        
+        with open(pdb_path, 'w') as f:
+            f.writelines(new_lines)
+        
+        if verbose:
+            print(f"  ✓ Renamed {len(bonded_cys)} CYS to CYX (disulfide bonded)")
 
 
 def standardize_pdb_content(pdb_content: str) -> Optional[str]:
