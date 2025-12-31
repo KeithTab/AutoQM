@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Dict, Generator
+from typing import List, Dict
 from functools import lru_cache
 
 class MdinGenerator:
@@ -10,11 +10,183 @@ class MdinGenerator:
         self._init_templates()
 
     def _init_templates(self):
-        self._templates['min'] = 'Minmize all the hydrogens\n &cntrl\n ifqnt=1,\n imin=1,           ! Minimize the initial structure\n maxcyc=1,          ! Maximum number of cycles for minimization\n ncyc=1,\n ntb=1,            ! Constant volume\n ntp=0,            ! No pressure scaling\n ntf=1,            ! Complete force evaluation\n ntwx= 1,       ! Write to trajectory file every ntwx steps\n ntpr= 1,       ! Print to mdout every ntpr steps\n ntwr= 1,       ! Write a restart file every ntwr steps\n cut=  10.0,        ! Nonbonded cutoff in Angstroms\n ntr=1,            ! Turn on restraints\n restraintmask=":1-314 & !@H=", ! atoms to be restrained\n restraint_wt=1.0, ! force constant for restraint\n ntxo=1,           ! Write coordinate file in ASCII format\n ioutfm=0,         ! Write trajectory file in ASCII format\n /\n &qmmm\n qmmask = \':111,55\',\n qmcharge = 0,\n qm_theory = \'XTB\',\n spin = 2,\n verbosity = 2,\n printcharges = 1,\n qmcut = 10.0,\n qm_ewald = 1,\n writepdb = 1,\n /\n &xtb\n qm_level = \'GFN2-xTB\',\n tfermi = 300.0,\n accuracy = 1.d-4\n maxiter = 250\n mmhardness = 0.0\n debug = F\n /\n'
-        self._templates['sp'] = 'SP calculation\n &cntrl\n ifqnt=1,\n imin=6,           ! Minimize the initial structure\n nstlim=1,\n dt=0.0,\n ntb=0,            ! Constant volume\n ntp=0,            ! No pressure scaling\n ntf=1,            ! Complete force evaluation\n ntwx= 1,       ! Write to trajectory file every ntwx steps\n ntpr= 1,       ! Print to mdout every ntpr steps\n ntwr= 1,       ! Write a restart file every ntwr steps\n cut=  10.0,        ! Nonbonded cutoff in Angstroms\n ntr=1,            ! Turn on restraints\n restraintmask=":1-314 & !@H=", ! atoms to be restrained\n restraint_wt=1.0, ! force constant for restraint\n ntxo=1,           ! Write coordinate file in ASCII format\n ioutfm=0,         ! Write trajectory file in ASCII format\n /\n &qmmm\n qmmask = \':111,55\',\n qmcharge = ,\n qm_theory = \'XTB\',\n spin = 2,\n verbosity = 2,\n printcharges = 1,\n qmcut = 10.0,\n qm_ewald = 1,\n writepdb = 1,\n /\n &xtb\n qm_level = \'GFN2-xTB\',\n tfermi = 300.0,\n accuracy = 1.d-4\n maxiter = 250\n mmhardness = 0.0\n debug = F\n /\n'
-        self._templates['vdwm'] = 'MMSP calculation\n &cntrl\n imin=6,           ! Minimize the initial structure\n nstlim=1,\n dt=0.0,\n ntb=0,            ! Constant volume\n ntp=0,            ! No pressure scaling\n ntf=1,            ! Complete force evaluation\n ntwx= 1,       ! Write to trajectory file every ntwx steps\n ntpr= 1,       ! Print to mdout every ntpr steps\n ntwr= 1,       ! Write a restart file every ntwr steps\n cut=  10.0,        ! Nonbonded cutoff in Angstroms\n ntr=1,            ! Turn on restraints\n restraintmask=":1-314 & !@H=", ! atoms to be restrained\n restraint_wt=1.0, ! force constant for restraint\n ntxo=1,           ! Write coordinate file in ASCII format\n ioutfm=0,         ! Write trajectory file in ASCII format\n /\n'
-        sys2_templates = {'min_sys2': 'Min SYS2 calculation\n     &cntrl\n     ifqnt=1,\n     imin=1,           ! Minimize the initial structure\n     maxcyc=1,          ! Maximum number of cycles for minimization\n     ncyc=1,\n     ntb=1,            ! Constant volume\n     ntp=0,            ! No pressure scaling\n     ntf=1,            ! Complete force evaluation\n     ntwx= 1,       ! Write to trajectory file every ntwx steps\n     ntpr= 1,       ! Print to mdout every ntpr steps\n     ntwr= 1,       ! Write a restart file every ntwr steps\n     cut=  10.0,        ! Nonbonded cutoff in Angstroms\n     ntr=1,            ! Turn on restraints\n     restraintmask=":1-314 & !@H=", ! atoms to be restrained\n     restraint_wt=1.0, ! force constant for restraint\n     ntxo=1,           ! Write coordinate file in ASCII format\n     ioutfm=0,         ! Write trajectory file in ASCII format\n     /\n     &qmmm\n     qmmask = \':55\',\n     qmcharge = 0,\n     qm_theory = \'XTB\',\n     spin = 2,\n     verbosity = 2,\n     printcharges = 1,\n     qmcut = 10.0,\n     qm_ewald = 1,\n     /\n     &xtb\n     qm_level = \'GFN2-xTB\',\n     tfermi = 300.0,\n     accuracy = 1.d-4\n     maxiter = 250\n     mmhardness = 0.0\n     debug = F\n     /\n    ', 'sp_sys2': 'SP SYS2 calculation\n     &cntrl\n     ifqnt=1,\n     imin=6,           ! Minimize the initial structure\n     nstlim=1,\n     dt=0.0,\n     ntb=0,            ! Constant volume\n     ntp=0,            ! No pressure scaling\n     ntf=1,            ! Complete force evaluation\n     ntwx= 1,       ! Write to trajectory file every ntwx steps\n     ntpr= 1,       ! Print to mdout every ntpr steps\n     ntwr= 1,       ! Write a restart file every ntwr steps\n     cut=  10.0,        ! Nonbonded cutoff in Angstroms\n     ntr=1,            ! Turn on restraints\n     restraintmask=":1-314 & !@H=", ! atoms to be restrained\n     restraint_wt=1.0, ! force constant for restraint\n     ntxo=1,           ! Write coordinate file in ASCII format\n     ioutfm=0,         ! Write trajectory file in ASCII format\n     /\n     &qmmm\n     qmmask = \':55\',\n     qmcharge = ,\n     qm_theory = \'XTB\',\n     spin = 2,\n     verbosity = 2,\n     printcharges = 1,\n     qmcut = 10.0,\n     qm_ewald = 1,\n     /\n     &xtb\n     qm_level = \'GFN2-xTB\',\n     tfermi = 300.0,\n     accuracy = 1.d-4\n     maxiter = 250\n     mmhardness = 0.0\n     debug = F\n     /\n    '}
-        self._templates.update(sys2_templates)
+        self._templates['min'] = """Minmize all the hydrogens
+ &cntrl
+ ifqnt=1,
+ imin=1,
+ maxcyc=1,
+ ncyc=1,
+ ntb=1,
+ ntp=0,
+ ntf=1,
+ ntwx= 1,
+ ntpr= 1,
+ ntwr= 1,
+ cut=  10.0,
+ ntr=1,
+ restraintmask=":1-9999 & !@H=",
+ restraint_wt=1.0,
+ ntxo=1,
+ ioutfm=0,
+ /
+ &qmmm
+ qmmask = ':111,55',
+ qmcharge = 0,
+ qm_theory = 'XTB',
+ spin = 2,
+ verbosity = 2,
+ printcharges = 1,
+ qmcut = 10.0,
+ qm_ewald = 1,
+ writepdb = 1,
+ /
+ &xtb
+ qm_level = 'GFN2-xTB',
+ tfermi = 300.0,
+ accuracy = 1.d-3
+ maxiter = 500
+ mmhardness = 0.0
+ debug = F
+ /
+"""
+        
+        self._templates['sp'] = """SP calculation
+ &cntrl
+ ifqnt=1,
+ imin=6,
+ nstlim=1,
+ dt=0.0,
+ ntb=0,
+ ntp=0,
+ ntf=1,
+ ntwx= 1,
+ ntpr= 1,
+ ntwr= 1,
+ cut=  10.0,
+ ntr=1,
+ restraintmask=":1-9999 & !@H=",
+ restraint_wt=1.0,
+ ntxo=1,
+ ioutfm=0,
+ /
+ &qmmm
+ qmmask = ':111,55',
+ qmcharge = ,
+ qm_theory = 'XTB',
+ spin = 2,
+ verbosity = 2,
+ printcharges = 1,
+ qmcut = 10.0,
+ qm_ewald = 1,
+ writepdb = 1,
+ /
+ &xtb
+ qm_level = 'GFN2-xTB',
+ tfermi = 300.0,
+ accuracy = 1.d-3
+ maxiter = 500
+ mmhardness = 0.0
+ debug = F
+ /
+"""
+        
+        self._templates['vdwm'] = """MMSP calculation
+ &cntrl
+ imin=6,
+ nstlim=1,
+ dt=0.0,
+ ntb=0,
+ ntp=0,
+ ntf=1,
+ ntwx= 1,
+ ntpr= 1,
+ ntwr= 1,
+ cut=  10.0,
+ ntr=1,
+ restraintmask=":1-9999 & !@H=",
+ restraint_wt=1.0,
+ ntxo=1,
+ ioutfm=0,
+ /
+"""
+        
+        self._templates['min_sys2'] = """Min SYS2 calculation
+ &cntrl
+ ifqnt=1,
+ imin=1,
+ maxcyc=1,
+ ncyc=1,
+ ntb=1,
+ ntp=0,
+ ntf=1,
+ ntwx= 1,
+ ntpr= 1,
+ ntwr= 1,
+ cut=  10.0,
+ ntr=1,
+ restraintmask=":1-9999 & !@H=",
+ restraint_wt=1.0,
+ ntxo=1,
+ ioutfm=0,
+ /
+ &qmmm
+ qmmask = ':55',
+ qmcharge = 0,
+ qm_theory = 'XTB',
+ spin = 2,
+ verbosity = 2,
+ printcharges = 1,
+ qmcut = 10.0,
+ qm_ewald = 1,
+ /
+ &xtb
+ qm_level = 'GFN2-xTB',
+ tfermi = 300.0,
+ accuracy = 1.d-3
+ maxiter = 500
+ mmhardness = 0.0
+ debug = F
+ /
+"""
+        
+        self._templates['sp_sys2'] = """SP SYS2 calculation
+ &cntrl
+ ifqnt=1,
+ imin=6,
+ nstlim=1,
+ dt=0.0,
+ ntb=0,
+ ntp=0,
+ ntf=1,
+ ntwx= 1,
+ ntpr= 1,
+ ntwr= 1,
+ cut=  10.0,
+ ntr=1,
+ restraintmask=":1-9999 & !@H=",
+ restraint_wt=1.0,
+ ntxo=1,
+ ioutfm=0,
+ /
+ &qmmm
+ qmmask = ':55',
+ qmcharge = ,
+ qm_theory = 'XTB',
+ spin = 2,
+ verbosity = 2,
+ printcharges = 1,
+ qmcut = 10.0,
+ qm_ewald = 1,
+ /
+ &xtb
+ qm_level = 'GFN2-xTB',
+ tfermi = 300.0,
+ accuracy = 1.d-3
+ maxiter = 500
+ mmhardness = 0.0
+ debug = F
+ /
+"""
 
     @lru_cache(maxsize=8)
     def get_template(self, template_type: str) -> str:

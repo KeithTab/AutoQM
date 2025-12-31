@@ -3,10 +3,10 @@ import subprocess
 import shutil
 from collections import Counter
 from multiprocessing import Pool, cpu_count
-from functools import lru_cache, wraps
+from functools import wraps
 from typing import Dict, List, Tuple, Optional, Set, Generator
 import time
-from utils.charge import *
+from utils.charge import detect_ligand_charge
 
 def timing_decorator(func):
 
@@ -95,13 +95,12 @@ class XTBProcessor:
 
     def get_ligand_resnum(self, pdb_path):
         pdb_path = Path(pdb_path)
-        standard_amino_acids = {'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE', 'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL', 'HIE', 'HID', 'HIP', 'CYX'}
         try:
             with open(pdb_path, 'r') as f:
                 for line in f:
                     if line.startswith('ATOM'):
                         resname = line[17:20].strip()
-                        if resname not in standard_amino_acids:
+                        if resname not in self._standard_amino_acids:
                             resnum = int(line[22:26].strip())
                             return resnum
             return None
@@ -166,12 +165,7 @@ class XTBProcessor:
             if idx > 0:
                 self._set_spin_value(mdin_file, spin_value)
             try:
-                result = subprocess.run(['sander', '-O', '-i', 'min.mdin', '-o', '01.min.mdout', '-p', 'wet.complex.prmtop', '-c', 'wet.complex.rst7', '-ref', 'wet.complex.rst7', '-x', '01.min.trj', '-inf', '01.min.mdinfo', '-r', '01.min.rst7'], cwd=str(work_dir), capture_output=True, text=True, timeout=600)
-            except subprocess.TimeoutExpired:
-                last_error = 'Sander minimization timed out'
-                if idx == len(spin_attempts) - 1:
-                    return {'status': 'error', 'error_message': last_error, 'output_dir': str(work_dir)}
-                continue
+                result = subprocess.run(['sander', '-O', '-i', 'min.mdin', '-o', '01.min.mdout', '-p', 'wet.complex.prmtop', '-c', 'wet.complex.rst7', '-ref', 'wet.complex.rst7', '-x', '01.min.trj', '-inf', '01.min.mdinfo', '-r', '01.min.rst7'], cwd=str(work_dir), capture_output=True, text=True)
             except Exception as e:
                 last_error = str(e)
                 if idx == len(spin_attempts) - 1:
@@ -201,12 +195,7 @@ class XTBProcessor:
             if idx > 0:
                 self._set_spin_value(mdin_file, spin_value)
             try:
-                result = subprocess.run(['sander', '-O', '-i', 'sp.mdin', '-o', 'sp.mdout', '-p', 'wet.complex.prmtop', '-c', '01.min.rst7', '-ref', '01.min.rst7', '-y', '01.min.trj', '-inf', 'sp.mdinfo', '-r', 'sp.rst7', '-x', 'sp.trj'], cwd=str(work_dir), capture_output=True, text=True, timeout=600)
-            except subprocess.TimeoutExpired:
-                last_error = 'Sander SP calculation timed out'
-                if idx == len(spin_attempts) - 1:
-                    return {'status': 'error', 'error_message': last_error, 'output_dir': str(work_dir)}
-                continue
+                result = subprocess.run(['sander', '-O', '-i', 'sp.mdin', '-o', 'sp.mdout', '-p', 'wet.complex.prmtop', '-c', '01.min.rst7', '-ref', '01.min.rst7', '-y', '01.min.trj', '-inf', 'sp.mdinfo', '-r', 'sp.rst7', '-x', 'sp.trj'], cwd=str(work_dir), capture_output=True, text=True)
             except Exception as e:
                 last_error = str(e)
                 if idx == len(spin_attempts) - 1:
@@ -236,12 +225,7 @@ class XTBProcessor:
             if idx > 0:
                 self._set_spin_value(mdin_file, spin_value)
             try:
-                result = subprocess.run(['sander', '-O', '-i', 'min_sys2.mdin', '-o', '02.min.mdout', '-p', 'wet.sys2.prmtop', '-c', 'wet.sys2.rst7', '-ref', 'wet.sys2.rst7', '-inf', '02.min.mdinfo', '-r', '02.min.rst7', '-x', '02.min.trj'], cwd=str(work_dir), capture_output=True, text=True, timeout=600)
-            except subprocess.TimeoutExpired:
-                last_error = 'Sander SYS2 minimization timed out'
-                if idx == len(spin_attempts) - 1:
-                    return {'status': 'error', 'error_message': last_error, 'output_dir': str(work_dir)}
-                continue
+                result = subprocess.run(['sander', '-O', '-i', 'min_sys2.mdin', '-o', '02.min.mdout', '-p', 'wet.sys2.prmtop', '-c', 'wet.sys2.rst7', '-ref', 'wet.sys2.rst7', '-inf', '02.min.mdinfo', '-r', '02.min.rst7', '-x', '02.min.trj'], cwd=str(work_dir), capture_output=True, text=True)
             except Exception as e:
                 last_error = str(e)
                 if idx == len(spin_attempts) - 1:
@@ -271,12 +255,7 @@ class XTBProcessor:
             if idx > 0:
                 self._set_spin_value(mdin_file, spin_value)
             try:
-                result = subprocess.run(['sander', '-O', '-i', 'sp_sys2.mdin', '-o', 'sp_sys2.mdout', '-p', 'wet.sys2.prmtop', '-c', 'wet.sys2.rst7', '-ref', '02.min.rst7', '-inf', 'sp_sys2.mdinfo', '-r', 'sp_sys2.rst7', '-x', 'sp_sys2.trj', '-y', '02.min.trj'], cwd=str(work_dir), capture_output=True, text=True, timeout=600)
-            except subprocess.TimeoutExpired:
-                last_error = 'Sander SYS2 SP calculation timed out'
-                if idx == len(spin_attempts) - 1:
-                    return {'status': 'error', 'error_message': last_error, 'output_dir': str(work_dir)}
-                continue
+                result = subprocess.run(['sander', '-O', '-i', 'sp_sys2.mdin', '-o', 'sp_sys2.mdout', '-p', 'wet.sys2.prmtop', '-c', 'wet.sys2.rst7', '-ref', '02.min.rst7', '-inf', 'sp_sys2.mdinfo', '-r', 'sp_sys2.rst7', '-x', 'sp_sys2.trj', '-y', '02.min.trj'], cwd=str(work_dir), capture_output=True, text=True)
             except Exception as e:
                 last_error = str(e)
                 if idx == len(spin_attempts) - 1:
@@ -416,12 +395,7 @@ class XTBProcessor:
             if idx > 0:
                 self._set_spin_value(mdin_file, spin_value)
             try:
-                result = subprocess.run(['sander', '-O', '-i', 'vdwm.mdin', '-o', 'vdwm.mdout', '-p', 'wet.complex.prmtop', '-c', '01.min.rst7', '-ref', '01.min.rst7', '-y', '01.min.trj', '-inf', 'vdwm.mdinfo', '-r', 'vdwm.rst7', '-x', 'vdwm.trj'], cwd=str(work_dir), capture_output=True, text=True, timeout=600)
-            except subprocess.TimeoutExpired:
-                last_error = 'Sander VDWM calculation timed out'
-                if idx == len(spin_attempts) - 1:
-                    return {'status': 'error', 'error_message': last_error, 'output_dir': str(work_dir)}
-                continue
+                result = subprocess.run(['sander', '-O', '-i', 'vdwm.mdin', '-o', 'vdwm.mdout', '-p', 'wet.complex.prmtop', '-c', '01.min.rst7', '-ref', '01.min.rst7', '-y', '01.min.trj', '-inf', 'vdwm.mdinfo', '-r', 'vdwm.rst7', '-x', 'vdwm.trj'], cwd=str(work_dir), capture_output=True, text=True)
             except Exception as e:
                 last_error = str(e)
                 if idx == len(spin_attempts) - 1:

@@ -5,9 +5,9 @@ import os
 import tempfile
 from multiprocessing import Pool, cpu_count
 from functools import lru_cache, wraps
-from typing import Dict, List, Tuple, Optional, Generator
+from typing import Dict, List, Optional, Generator
 import time
-from utils.charge import *
+from utils.charge import detect_ligand_charge
 
 def timing_decorator(func):
 
@@ -46,14 +46,63 @@ class TopologyGenerator:
     @lru_cache(maxsize=1)
     def leap_template(self) -> str:
         if self._leap_template is None:
-            self._leap_template = 'source leaprc.protein.ff14SB\nsource leaprc.gaff2\nsource leaprc.water.tip3p\nloadamberparams frcmod.ionsjc_tip3p \nset default PBradii mbondi3\n\nrec=loadpdb {protein_pdb}\nloadamberparams {frcmod}\nlig=loadmol2 {mol2}\n\ngascomplex= combine {{rec lig}}\n\nsavepdb gascomplex gas.complex.pdb\n\nsaveamberparm gascomplex gas.complex.parm7 gas.complex.rst7\nsaveamberparm rec gas.receptor.parm7 gas.receptor.rst7\nsaveamberparm lig gas.ligand.parm7 gas.ligand.rst7\n \nsolvcomplex= combine {{rec lig}}\n \nsolvatebox solvcomplex TIP3PBOX 12.0\n \naddions solvcomplex Cl- 0\naddions solvcomplex Na+ 0\n \nsavepdb solvcomplex wet.complex.pdb\n \ncharge solvcomplex\ncheck solvcomplex\n \nsaveamberparm solvcomplex wet.complex.prmtop wet.complex.rst7\nquit\n'
+            self._leap_template = """source leaprc.protein.ff14SB
+source leaprc.gaff2
+source leaprc.water.tip3p
+loadamberparams frcmod.ionsjc_tip3p
+set default PBradii mbondi3
+
+rec=loadpdb {protein_pdb}
+loadamberparams {frcmod}
+lig=loadmol2 {mol2}
+
+gascomplex= combine {{rec lig}}
+
+savepdb gascomplex gas.complex.pdb
+saveamberparm gascomplex gas.complex.parm7 gas.complex.rst7
+saveamberparm rec gas.receptor.parm7 gas.receptor.rst7
+saveamberparm lig gas.ligand.parm7 gas.ligand.rst7
+
+solvcomplex= combine {{rec lig}}
+solvatebox solvcomplex TIP3PBOX 12.0
+addions solvcomplex Cl- 0
+addions solvcomplex Na+ 0
+
+savepdb solvcomplex wet.complex.pdb
+charge solvcomplex
+check solvcomplex
+saveamberparm solvcomplex wet.complex.prmtop wet.complex.rst7
+quit
+"""
         return self._leap_template
 
     @property
     @lru_cache(maxsize=1)
     def leap_sys2_template(self) -> str:
         if self._leap_sys2_template is None:
-            self._leap_sys2_template = 'source leaprc.protein.ff14SB\nsource leaprc.gaff2\nsource leaprc.water.tip3p\nloadamberparams frcmod.ionsjc_tip3p \nset default PBradii mbondi3\nrec=loadpdb {protein_pdb}\nloadamberparams {frcmod}\nsavepdb rec gas.sys2.pdb\nsaveamberparm rec gas.sys2.parm7 gas.sys2.rst7\nsolvcomplex= combine {{rec}}\nsolvatebox solvcomplex TIP3PBOX 12.0\naddions solvcomplex Cl- 0\naddions solvcomplex Na+ 0\nsavepdb solvcomplex wet.sys2.pdb\ncharge solvcomplex\ncheck solvcomplex\nsaveamberparm solvcomplex wet.sys2.prmtop wet.sys2.rst7\nquit\n'
+            self._leap_sys2_template = """source leaprc.protein.ff14SB
+source leaprc.gaff2
+source leaprc.water.tip3p
+loadamberparams frcmod.ionsjc_tip3p
+set default PBradii mbondi3
+
+rec=loadpdb {protein_pdb}
+loadamberparams {frcmod}
+
+savepdb rec gas.sys2.pdb
+saveamberparm rec gas.sys2.parm7 gas.sys2.rst7
+
+solvcomplex= combine {{rec}}
+solvatebox solvcomplex TIP3PBOX 12.0
+addions solvcomplex Cl- 0
+addions solvcomplex Na+ 0
+
+savepdb solvcomplex wet.sys2.pdb
+charge solvcomplex
+check solvcomplex
+saveamberparm solvcomplex wet.sys2.prmtop wet.sys2.rst7
+quit
+"""
         return self._leap_sys2_template
 
     def _collect_output_files(self, working_dir: Path) -> Dict[str, List[str]]:

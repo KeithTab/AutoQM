@@ -1,23 +1,11 @@
 from pathlib import Path
 from typing import Optional
-import sys
-
-try:
-    from pdbfixer import PDBFixer
-    from openmm.app import PDBFile
-    PDBFIXER_AVAILABLE = True
-except ImportError:
-    PDBFIXER_AVAILABLE = False
-    print("Warning: PDBFixer not available. Install with: conda install -c conda-forge pdbfixer")
+from pdbfixer import PDBFixer
+from openmm.app import PDBFile
 
 
 def standardize_pdb_file(pdb_path: Path, output_path: Path = None, 
                          verbose: bool = False) -> bool:
-    if not PDBFIXER_AVAILABLE:
-        if verbose:
-            print("  ⚠ PDBFixer not available, skipping standardization")
-        return False
-    
     pdb_path = Path(pdb_path)
     if output_path is None:
         output_path = pdb_path
@@ -128,11 +116,9 @@ def _fix_disulfide_bonds(pdb_path: Path, distance_cutoff: float = 2.5, verbose: 
 
 
 def standardize_pdb_content(pdb_content: str) -> Optional[str]:
-    if not PDBFIXER_AVAILABLE:
-        return pdb_content
+    import tempfile
     
     try:
-        import tempfile
         
         with tempfile.NamedTemporaryFile(mode='w', suffix='.pdb', delete=False) as tmp:
             tmp.write(pdb_content)

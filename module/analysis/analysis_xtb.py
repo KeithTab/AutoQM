@@ -2,7 +2,6 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Generator
 import pandas as pd
-from functools import lru_cache
 
 class XTBAnalyzer:
     __slots__ = ('output_dir', '_regex_patterns', '_eh_to_kcal')

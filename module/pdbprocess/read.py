@@ -1,12 +1,17 @@
 from Bio import PDB
 from pathlib import Path
-from functools import lru_cache, wraps
+from functools import wraps
 from multiprocessing import Pool, cpu_count
 from typing import Dict, List, Generator, Tuple
 import time
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdDetermineBonds
 from utils.standardize import standardize_pdb_file
+
+STANDARD_RESIDUES = frozenset({
+    'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
+    'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
+})
 
 
 def timing_decorator(func):
@@ -45,13 +50,8 @@ class PDBProcessor:
     class ProteinSelect(PDB.Select):
         __slots__ = ()
         
-        STANDARD_RESIDUES = {
-            'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
-            'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
-        }
-        
         def accept_residue(self, residue):
-            return residue.resname in self.STANDARD_RESIDUES
+            return residue.resname in STANDARD_RESIDUES
         
         def accept_atom(self, atom):
             return atom.element != 'H'
@@ -59,13 +59,8 @@ class PDBProcessor:
     class LigandSelect(PDB.Select):
         __slots__ = ()
         
-        STANDARD_RESIDUES = {
-            'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
-            'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
-        }
-        
         def accept_residue(self, residue):
-            return residue.resname not in self.STANDARD_RESIDUES and residue.resname != 'HOH'
+            return residue.resname not in STANDARD_RESIDUES and residue.resname != 'HOH'
     
     @error_handler
     @timing_decorator
@@ -139,11 +134,6 @@ class PDBProcessor:
     def _count_atoms_generator(self, structure) -> Generator[Tuple[str, int], None, None]:
         total = protein = protein_no_h = ligand = 0
         
-        STANDARD_RESIDUES = {
-            'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
-            'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
-        }
-        
         for model in structure:
             for chain in model:
                 for residue in chain:
@@ -165,6 +155,7 @@ class PDBProcessor:
         yield ('ligand_atoms', ligand)
     
     @error_handler
+    @error_handler
     @timing_decorator
     def process_pdb(self, input_pdb_path: Path, output_protein_path: Path, 
                     output_ligand_path: Path, verbose: bool = False) -> Dict:
@@ -174,11 +165,6 @@ class PDBProcessor:
         
         output_protein_path.parent.mkdir(parents=True, exist_ok=True)
         output_ligand_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        STANDARD_RESIDUES = {
-            'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
-            'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'
-        }
         
         protein_lines = []
         ligand_lines = []
